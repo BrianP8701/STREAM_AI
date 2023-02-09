@@ -106,7 +106,39 @@ def interpret(g_path, fps, mTp, sX, Y, tempX, tempY, tempZ):
             # Let's get how many frames we need to move and change in x every frame
     return tip_frame
             
-            
+def crop(g_path, fps, mTp, tip: list, prevX, prevY, prevZ):
+    x = prevX
+    y = prevY
+    z = prevZ
+    with open(g_path, 'r') as f_gcode:
+        data = f_gcode.read()
+        data: list = data.split("\n")
+    
+    g_index = -1 # Line in gcode
+    current_speed = 0 # mm/s
+    
+    while(True): # Loop until end of gcode
+        g_index = getNextLine(data, g_index)
+        if(g_index == -1): break
+        gline = data[g_index]
+    
+        curr_val = read_gline(gline) # X, Y, Z, F
+        
+        if curr_val[3] != -1:
+            current_speed = float(curr_val[3]) / 60
+        if curr_val[0] != -1 or curr_val[1] != -1 or curr_val[2] != -1:
+            prevX = x
+            prevY = y
+            prevZ = z
+            if(curr_val[0] == -1): x = prevX
+            else: x = float(curr_val[0])
+            if(curr_val[1] == -1): y = prevY
+            else: y = float(curr_val[1])
+            if(curr_val[2] == -1): z = prevZ
+            else: z = float(curr_val[2])
+        
+        dist = distance(prevX, prevY, prevZ, x, y, z)
+        
             
            
         

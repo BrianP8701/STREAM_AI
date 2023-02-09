@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import gParser as gp
 import time
+import json
 
 def draw_rectangle(image_path, x, y, a, b):
     image = cv2.imread(image_path)
@@ -40,7 +41,23 @@ def measure_diameter(video_path, g_code):
     cv2.destroyAllWindows()
 
 
-
+def measure_diameter2(video_path, json_path, g_code):
+    cam = cv2.VideoCapture(video_path)
+    
+    tip = []
+    f = open(json_path)
+    data = json.load(f)
+    for i in data:
+        tip.append([i.get('x'), i.get('y')])
+    f.close()
+    
+    bounding_boxes = gp.crop(g_code, 30, 17.82233361, tip, 82.554, 82.099, 1.8)
+    
+    
+    
+    currentframe = 0
+    currentTime = 0 # Remember to divide time by 3
+    g_line = 0
 
 
 
