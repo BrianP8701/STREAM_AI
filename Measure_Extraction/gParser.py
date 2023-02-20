@@ -11,10 +11,8 @@ def getNextLine(data: list, index) -> int:
         index += 1
     return -1
 
-# Arguments:
-#   line   -  A line of gcode
-# Returns: 
-#   [X, Y, Z, F] - The corresponding values, -1 if empty
+
+#   Returns [X, Y, Z, F] from a line of gcode. -1 if NA
 def read_gline(line: str) -> list:
     val = [-1, -1, -1, -1]
     try:
@@ -31,9 +29,11 @@ def read_gline(line: str) -> list:
         elif(c[:1] == "F"): val[3] = c[1:]
     return val
 
+#   Euclidean distance
 def distance(x, y, z, a, b, c):
     return math.sqrt((x - a)**2 + (y - b)**2 + (z - c)**2)
 
+#   
 def x_v(x, y, a, b, v):
     if x-a == 0: return 0
     theta = math.atan(abs(y-b)/abs(x-a))
@@ -42,19 +42,14 @@ def x_v(x, y, a, b, v):
 # Arguments:
 #   g_path  -  Pathname of .gcode file
 #   fps     -  FPS of video
-#   mTp     -  Ratio of 1 millisecond to pixels
+#   mTp     -  Initial ratio of 1 millimeter to pixels
 #   sX      -  Initial X coordinate on image
-#   Y       -  Y coordinate on image
-#   tempX   -  Initial x coordinate on bed
-#   tempY   -  Initial y coordinate on bed
-#   tempZ   -  Initial z coordinate on bed
-# Returns:
-#   A list containing the bounding boxes for tip of extruder
-def interpret(g_path, fps, mTp, sX, Y, tempX, tempY, tempZ):
-    tip_box = [sX-3, Y-3, sX+2, Y+2] # Tip bounding box
-    x = float(tempX)
-    y = float(tempY)
-    z = float(tempZ)
+#   sY      -  Y coordinate on image
+#   bed     -  [x, y, z] Initial bed coordinates
+#   maxA    -  [x, y, z] Max accelerations in each axis
+# Returns a list containing the bounding boxes for tip of extruder
+def interpret(g_path, fps, mTp, sX, sY, bed, maxA):
+    tip_box = [sX-3, sY-3, sX+2, sY+2] # Tip bounding box
     tip_frame = [] # List of bounding boxes for each frame
     tip_frame.append(tip_box)
     
@@ -64,6 +59,9 @@ def interpret(g_path, fps, mTp, sX, Y, tempX, tempY, tempZ):
     
     g_index = -1 # Line in gcode
     current_speed = 0 # mm/s
+    position = [float(bed[0]), float(bed[1]), float(bed[1])]
+    velocity = [0, 0, 0]
+    acceleration = [maxA[0], maxA[1], maxA[2]]
     
     while(True): # Loop until end of gcode
         g_index = getNextLine(data, g_index)
@@ -89,7 +87,7 @@ def interpret(g_path, fps, mTp, sX, Y, tempX, tempY, tempZ):
             if(curr_val[2] == -1): z = prevZ
             else: z = float(curr_val[2])
     
-            dist = distance(prevX, prevY, prevZ, x, y, z)
+            dist = distance(prevX, prevY, prevZ, x, y, z) # mm
             
             move_time = dist / current_speed # Time to complete this line of gcode (seconds)
             move_frames = int(move_time * fps) # Frames in this line
@@ -97,10 +95,12 @@ def interpret(g_path, fps, mTp, sX, Y, tempX, tempY, tempZ):
             pixels_a_frame = abs((x_velocity*mTp) / fps) # Try with and without abs
             if prevX > x: pixels_a_frame *= -1 
             
+            # z_velocity  # This will change mTp, and move in the y direction. It will also have a horizontal effect
+            
             # Iterating through frames for this line of gcode
             for i in range(move_frames-1):
                 sX += pixels_a_frame
-                tip_box = [int(sX)-3, Y-3, int(sX)+2, Y+2]
+                tip_box = [int(sX)-3, sY-3, int(sX)+2, sY+2]
                 tip_frame.append(tip_box)
             
             # Let's get how many frames we need to move and change in x every frame
@@ -116,6 +116,10 @@ def crop(g_path, fps, mTp, tip: list, prevX, prevY, prevZ):
     
     g_index = -1 # Line in gcode
     current_speed = 0 # mm/s
+    frame = 0
+    
+    bounding_boxes = []
+    temporary_tracker = []
     
     while(True): # Loop until end of gcode
         g_index = getNextLine(data, g_index)
@@ -137,7 +141,56 @@ def crop(g_path, fps, mTp, tip: list, prevX, prevY, prevZ):
             if(curr_val[2] == -1): z = prevZ
             else: z = float(curr_val[2])
         
-        dist = distance(prevX, prevY, prevZ, x, y, z)
+            dist = distance(prevX, prevY, prevZ, x, y, z)
+            
+            # Next bed destination: x, y
+            # Previous pos on bed: prevX, prevY
+            # Current tip coords: tip[frame][0], tip[frame][1]
+            
+            move_time = dist / current_speed # Time to complete this line of gcode (seconds)
+            move_frames = int(move_time * fps) # Frames in this line
+            
+            L = (current_speed / mTp) * 60 # Distance in pixels to move back from tip to crop
+            theta = 0
+            if(x-prevX != 0 ): theta = (math.atan(abs(y-prevY)/abs(x-prevX)) * (180 / math.pi))**2 / 90 # Angle to crop torwards in image
+            dx = L * math.cos(theta * (math.pi / 180))
+            dy = L * math.sin(theta * (math.pi / 180))
+            
+            temp = [L, theta, dx, dy]
+            
+            for i in range(move_frames-1):
+                if(frame == len(tip)-1): break
+                cropY = tip[frame][1]
+                cropX = tip[frame][0]
+                A = tip[frame][0]
+                B = tip[frame][1]
+            
+                if(y > prevY): cropY += dy
+                else: cropY -= dy
+                if(x > prevX): cropX -= dx
+                else: cropX += dx
+                
+                if(theta > 85): # Moving vertically
+                    if(A > cropX): 
+                        A += 8
+                        cropX -= 8
+                    else:
+                        A -= 8
+                        cropX += 8
+                elif(theta < 5):
+                    if(B > cropY): 
+                        B += 8
+                        cropY -= 8
+                    else:
+                        B -= 8
+                        cropY += 8
+                #elif()
+                
+                temporary_tracker.append(temp)
+                if(tip[frame][0] == -1): bounding_boxes.append([0,0,0,0])
+                else: bounding_boxes.append([int(cropX), int(cropY), int(A), int(B)])
+                frame += 1
+    return [bounding_boxes, temporary_tracker]
         
             
            
