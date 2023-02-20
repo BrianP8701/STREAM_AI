@@ -73,10 +73,6 @@ def interpret(g_path, fps, mTp, sX, sY, bed, maxA):
         if curr_val[3] != -1:
             current_speed = float(curr_val[3]) / 60
         if curr_val[0] != -1 or curr_val[1] != -1 or curr_val[2] != -1:
-            # I'll have to calculate:
-        #   Angle to crop
-        #   Next destination coordinate
-        #   Iteratively add to tip frame
             prevX = x
             prevY = y
             prevZ = z
